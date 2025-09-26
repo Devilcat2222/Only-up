@@ -65,20 +65,33 @@
         #game-over button:hover {
             background-color: #45a049;
         }
+        #shadow-toggle {
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+        }
+        #shadow-toggle label {
+            margin-left: 5px;
+        }
     </style>
 </head>
 <body>
     <div id="instructions">
         <p>Controls:</p>
         <p>WASD - Move</p>
-        <p>Space - Jump (super jump if holding coil)</p>
+        <p>Space - Jump</p>
+        <p>E - Superjump (if holding coil)</p>
         <p>Mouse - Look around</p>
-        <p>Left Click - Shoot if holding gun</p>
+        <p>Left Click - Shoot (if holding gun)</p>
     </div>
     <div id="ui">
         <p id="lives">Lives: 3</p>
         <p id="item">Item: None</p>
         <p id="height">Height: 0</p>
+        <div id="shadow-toggle">
+            <input type="checkbox" id="shadow-checkbox">
+            <label for="shadow-checkbox">Enable Shadows</label>
+        </div>
     </div>
     <div id="crosshair">+</div>
     <div id="game-over">
@@ -101,6 +114,8 @@
         // Renderer
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = false;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         document.body.appendChild(renderer.domElement);
 
         // PointerLockControls
@@ -129,7 +144,7 @@
 
         // Gun model (for holding)
         const gunGeometry = new THREE.BoxGeometry(0.3, 0.2, 0.8);
-        const gunMaterial = new THREE.MeshStandardMaterial({ color: 0xff9900 });
+        const gunMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
         const gun = new THREE.Mesh(gunGeometry, gunMaterial);
         gun.position.set(0.5, -0.5, -0.7);
         gun.rotation.y = Math.PI / -8;
@@ -143,6 +158,7 @@
         const heightText = document.getElementById('height');
         const gameOverScreen = document.getElementById('game-over');
         const maxHeightText = document.getElementById('max-height');
+        const shadowCheckbox = document.getElementById('shadow-checkbox');
 
         function updateUI() {
             livesText.textContent = `Lives: ${player.lives}`;
@@ -150,6 +166,37 @@
             heightText.textContent = `Height: ${Math.floor(player.position.y)}`;
             gun.visible = player.currentItem === 'gun';
         }
+
+        // Shadow toggle
+        function updateShadows(enabled) {
+            renderer.shadowMap.enabled = enabled;
+            platforms.forEach(p => {
+                p.castShadow = enabled;
+                p.receiveShadow = enabled;
+            });
+            obstacles.forEach(o => {
+                o.castShadow = enabled;
+                o.receiveShadow = enabled;
+            });
+            items.forEach(i => {
+                if (i.isMesh) {
+                    i.castShadow = enabled;
+                } else {
+                    i.children.forEach(c => c.castShadow = enabled);
+                }
+            });
+            drones.forEach(d => {
+                d.castShadow = enabled;
+                d.receiveShadow = enabled;
+            });
+            projectiles.forEach(p => {
+                p.castShadow = enabled;
+            });
+        }
+
+        shadowCheckbox.addEventListener('change', () => {
+            updateShadows(shadowCheckbox.checked);
+        });
 
         // Keyboard controls
         const keys = {};
@@ -172,7 +219,7 @@
         const coilMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff99, emissive: 0x00ff99, emissiveIntensity: 0.5 });
         const droneMaterial = new THREE.MeshStandardMaterial({ color: 0x3333ff });
         const projectileMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
-        const gunItemMaterial = new THREE.MeshStandardMaterial({ color: 0xff9900, emissive: 0xff9900, emissiveIntensity: 0.5 });
+        const gunItemMaterial = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0x000000, emissiveIntensity: 0.5 });
 
         // Arrays to store objects
         const platforms = [];
@@ -251,7 +298,6 @@
                 const geometry = new THREE.TorusGeometry(0.4, 0.1, 16, 32);
                 item = new THREE.Mesh(geometry, coilMaterial);
             } else {
-                // Gun as a group of barrel and handle
                 item = new THREE.Group();
                 const barrelGeometry = new THREE.BoxGeometry(0.2, 0.2, 0.8);
                 const handleGeometry = new THREE.BoxGeometry(0.2, 0.4, 0.2);
@@ -377,6 +423,8 @@
 
                 levelCenters.push(...newCenters);
             }
+
+            updateShadows(shadowCheckbox.checked);
         }
 
         // Initial stage generation
@@ -387,6 +435,15 @@
         scene.add(ambientLight);
         const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
         directionalLight.position.set(10, 20, 10);
+        directionalLight.castShadow = false;
+        directionalLight.shadow.mapSize.width = 512;
+        directionalLight.shadow.mapSize.height = 512;
+        directionalLight.shadow.camera.near = 0.1;
+        directionalLight.shadow.camera.far = 50;
+        directionalLight.shadow.camera.left = -20;
+        directionalLight.shadow.camera.right = 20;
+        directionalLight.shadow.camera.top = 20;
+        directionalLight.shadow.camera.bottom = -20;
         scene.add(directionalLight);
 
         // Raycaster for shooting
@@ -599,15 +656,17 @@
             player.velocity.z = direction.x * right.z + direction.z * forward.z;
 
             if (keys['Space'] && player.isGrounded) {
-                let force = player.jumpForce;
-                if (player.currentItem === 'coil') {
-                    force *= 2;
-                    player.currentItem = null;
-                    updateUI();
-                }
-                player.velocity.y = force;
+                player.velocity.y = player.jumpForce;
                 player.isGrounded = false;
                 player.onPlatform = null;
+            }
+
+            if (keys['KeyE'] && player.isGrounded && player.currentItem === 'coil') {
+                player.velocity.y = player.jumpForce * 2;
+                player.isGrounded = false;
+                player.onPlatform = null;
+                player.currentItem = null;
+                updateUI();
             }
 
             player.position.add(player.velocity);
