@@ -105,7 +105,7 @@
         // Scene setup
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x87ceeb);
-        scene.fog = new THREE.Fog(0x87ceeb, 10, 100);
+        scene.fog = new THREE.Fog(0x87ceeb, 10, 200); // Increased fog far distance
 
         // Camera
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -121,7 +121,9 @@
         // PointerLockControls
         const controls = new THREE.PointerLockControls(camera, document.body);
         document.addEventListener('click', () => {
-            if (!gameOver) controls.lock();
+            if (!gameOver) {
+                controls.lock();
+            }
         });
 
         // Player physics
@@ -237,6 +239,7 @@
             if (options.slippy) platform.userData.slippy = true;
             scene.add(platform);
             platforms.push(platform);
+            console.log(`Platform created at (${x}, ${y}, ${z}) with size (${width}, 0.5, ${depth})`);
             return platform;
         }
 
@@ -256,6 +259,7 @@
             if (options.slippy) platform.userData.slippy = true;
             scene.add(platform);
             platforms.push(platform);
+            console.log(`Moving platform created at (${x}, ${y}, ${z})`);
             return platform;
         }
 
@@ -271,6 +275,7 @@
             };
             scene.add(platform);
             platforms.push(platform);
+            console.log(`Spinning platform created at (${x}, ${y}, ${z})`);
             return platform;
         }
 
@@ -288,6 +293,7 @@
             };
             scene.add(obstacle);
             obstacles.push(obstacle);
+            console.log(`Obstacle created at (${x}, ${y}, ${z})`);
             return obstacle;
         }
 
@@ -311,6 +317,7 @@
             item.userData = { type };
             scene.add(item);
             items.push(item);
+            console.log(`Item (${type}) created at (${x}, ${y + 1}, ${z})`);
             return item;
         }
 
@@ -325,6 +332,7 @@
             };
             scene.add(drone);
             drones.push(drone);
+            console.log(`Drone created at (${x}, ${y + 3}, ${z})`);
             return drone;
         }
 
@@ -342,6 +350,7 @@
             };
             scene.add(projectile);
             projectiles.push(projectile);
+            console.log(`Projectile (${isGunProjectile ? 'gun' : 'drone'}) created at (${pos.x}, ${pos.y}, ${pos.z})`);
             return projectile;
         }
 
@@ -357,10 +366,11 @@
 
         // Procedural stage generation
         function generateStage() {
+            console.log('Generating new stage...');
             platforms.forEach(p => scene.remove(p));
             obstacles.forEach(o => scene.remove(o));
             items.forEach(i => scene.remove(i));
-            drones.forEach(d => scene.remove(i));
+            drones.forEach(d => scene.remove(d));
             projectiles.forEach(pr => scene.remove(pr));
             platforms.length = 0;
             obstacles.length = 0;
@@ -372,7 +382,7 @@
             player.maxHeight = 0;
             updateUI();
 
-            createPlatform(0, 0, 0, 10, 10);
+            createPlatform(0, 0, 0, 10, 10); // Guaranteed starting platform
 
             let currentLevel = 0;
             const maxLevels = 15;
@@ -441,6 +451,7 @@
             }
 
             updateShadows(shadowCheckbox.checked);
+            console.log(`Stage generated: ${platforms.length} platforms, ${items.length} items, ${drones.length} drones`);
         }
 
         // Initial stage generation
@@ -464,6 +475,7 @@
 
         // Respawn function
         function respawn() {
+            console.log('Respawning player...');
             gameOver = false;
             gameOverScreen.style.display = 'none';
             player.position.set(0, 2, 0);
@@ -472,9 +484,15 @@
             player.lives = 3;
             player.currentItem = null;
             player.maxHeight = 0;
-            controls.lock();
+            camera.rotation.set(0, 0, 0); // Reset camera rotation
+            controls.getObject().rotation.set(0, 0, 0); // Reset controls rotation
+            Object.keys(keys).forEach(key => keys[key] = false); // Reset inputs
             generateStage();
             updateUI();
+            setTimeout(() => {
+                if (!gameOver) controls.lock();
+            }, 100); // Delay to ensure controls lock properly
+            console.log(`Player respawned at (${player.position.x}, ${player.position.y}, ${player.position.z})`);
         }
 
         // Collision detection
@@ -715,6 +733,7 @@
             }
 
             updateUI();
+            console.log(`Player position: (${player.position.x.toFixed(2)}, ${player.position.y.toFixed(2)}, ${player.position.z.toFixed(2)})`);
         }
 
         // Animation loop
