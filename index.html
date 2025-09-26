@@ -39,6 +39,32 @@
             text-align: center;
             pointer-events: none;
         }
+        #game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-family: Arial, sans-serif;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            display: none;
+        }
+        #game-over button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+        #game-over button:hover {
+            background-color: #45a049;
+        }
     </style>
 </head>
 <body>
@@ -52,8 +78,14 @@
     <div id="ui">
         <p id="lives">Lives: 3</p>
         <p id="item">Item: None</p>
+        <p id="height">Height: 0</p>
     </div>
     <div id="crosshair">+</div>
+    <div id="game-over">
+        <h1>Game Over</h1>
+        <p id="max-height">Max Height: 0</p>
+        <button onclick="respawn()">Respawn</button>
+    </div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
     <script>
@@ -74,7 +106,7 @@
         // PointerLockControls for smooth first-person movement
         const controls = new THREE.PointerLockControls(camera, document.body);
         document.addEventListener('click', () => {
-            controls.lock();
+            if (!gameOver) controls.lock();
         });
 
         // Player physics
@@ -88,26 +120,34 @@
             isGrounded: false,
             onPlatform: null,
             lives: 3,
-            currentItem: null
+            currentItem: null,
+            maxHeight: 0
         };
+
+        // Game state
+        let gameOver = false;
 
         // Gun model
         const gunGeometry = new THREE.BoxGeometry(0.3, 0.2, 0.8);
         const gunMaterial = new THREE.MeshStandardMaterial({ color: 0xff9900 });
         const gun = new THREE.Mesh(gunGeometry, gunMaterial);
-        gun.position.set(0.5, -0.5, -0.7); // Position in front of camera
-        gun.rotation.y = Math.PI / -8; // Slight angle for realism
-        gun.visible = false; // Hidden by default
-        camera.add(gun); // Attach to camera for FPS effect
+        gun.position.set(0.5, -0.5, -0.7);
+        gun.rotation.y = Math.PI / -8;
+        gun.visible = false;
+        camera.add(gun);
         scene.add(camera);
 
         // UI elements
         const livesText = document.getElementById('lives');
         const itemText = document.getElementById('item');
+        const heightText = document.getElementById('height');
+        const gameOverScreen = document.getElementById('game-over');
+        const maxHeightText = document.getElementById('max-height');
 
         function updateUI() {
             livesText.textContent = `Lives: ${player.lives}`;
             itemText.textContent = `Item: ${player.currentItem ? player.currentItem : 'None'}`;
+            heightText.textContent = `Height: ${Math.floor(player.position.y)}`;
             gun.visible = player.currentItem === 'gun';
         }
 
@@ -118,7 +158,7 @@
 
         // Mouse click for shooting
         renderer.domElement.addEventListener('mousedown', (e) => {
-            if (controls.isLocked && player.currentItem === 'gun') {
+            if (controls.isLocked && player.currentItem === 'gun' && !gameOver) {
                 shootGun();
             }
         });
@@ -234,7 +274,7 @@
             const geometry = new THREE.SphereGeometry(0.2, 8, 8);
             const projectile = new THREE.Mesh(geometry, projectileMaterial);
             projectile.position.copy(pos);
-            projectile.userData = { velocity: dir.clone().normalize().multiplyScalar(0.2) };
+            projectile.userData = { velocity: dir.clone().normalize().multiplyScalar(0.1) }; // Slower speed
             scene.add(projectile);
             projectiles.push(projectile);
             return projectile;
@@ -254,6 +294,7 @@
             projectiles.length = 0;
 
             player.currentItem = null;
+            player.maxHeight = 0;
             updateUI();
 
             createPlatform(0, 0, 0, 10, 10);
@@ -264,6 +305,7 @@
             const maxPlatformsPerLevel = 4;
             const levelHeight = 3;
             const maxHorizontalSpread = 10;
+            let droneSpawned = false;
 
             const levelCenters = [{x: 0, z: 0}];
 
@@ -305,8 +347,9 @@
                         createItem(itemType, x, y, z);
                     }
 
-                    if (Math.random() < 0.05) {
+                    if (!droneSpawned && Math.random() < 0.05) {
                         createDrone(x, y, z);
+                        droneSpawned = true;
                     }
 
                     if (Math.random() < 0.2) {
@@ -345,6 +388,21 @@
                 drones.splice(drones.indexOf(hitDrone), 1);
             }
             player.currentItem = null;
+            updateUI();
+        }
+
+        // Respawn function
+        function respawn() {
+            gameOver = false;
+            gameOverScreen.style.display = 'none';
+            player.position.set(0, 2, 0);
+            player.velocity.set(0, 0, 0);
+            player.isGrounded = true;
+            player.lives = 3;
+            player.currentItem = null;
+            player.maxHeight = 0;
+            controls.lock();
+            generateStage();
             updateUI();
         }
 
@@ -400,7 +458,7 @@
                     scene.remove(proj);
                     projectiles.splice(i, 1);
                     if (player.lives <= 0) {
-                        resetGame();
+                        showGameOver();
                     }
                 } else if (proj.position.y < -20 || proj.position.distanceTo(player.position) > 100) {
                     scene.remove(proj);
@@ -411,7 +469,7 @@
             for (const obstacle of obstacles) {
                 const obstacleBox = new THREE.Box3().setFromObject(obstacle);
                 if (playerBox.intersectsBox(obstacleBox)) {
-                    resetGame();
+                    showGameOver();
                     return true;
                 }
             }
@@ -423,12 +481,20 @@
             return collidedWithPlatform;
         }
 
+        function showGameOver() {
+            gameOver = true;
+            gameOverScreen.style.display = 'block';
+            maxHeightText.textContent = `Max Height: ${Math.floor(player.maxHeight)}`;
+            controls.unlock();
+        }
+
         function resetGame() {
             player.position.set(0, 2, 0);
             player.velocity.set(0, 0, 0);
             player.isGrounded = true;
             player.lives = 3;
             player.currentItem = null;
+            player.maxHeight = 0;
             generateStage();
             updateUI();
         }
@@ -487,6 +553,8 @@
 
         // Movement and physics update
         function update() {
+            if (gameOver) return;
+
             updateMovingObjects();
             updateDronesAndProjectiles();
 
@@ -519,6 +587,8 @@
 
             player.position.add(player.velocity);
 
+            player.maxHeight = Math.max(player.maxHeight, player.position.y);
+
             player.isGrounded = false;
             const collided = checkCollision();
             if (!collided && player.velocity.y < 0) {
@@ -533,8 +603,10 @@
             player.velocity.z *= damping;
 
             if (player.position.y < -10 || player.position.y > 50) {
-                resetGame();
+                showGameOver();
             }
+
+            updateUI();
         }
 
         // Animation loop
