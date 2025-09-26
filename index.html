@@ -17,14 +17,29 @@
             padding: 10px;
             border-radius: 5px;
         }
+        #ui {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+        }
     </style>
 </head>
 <body>
     <div id="instructions">
         <p>Controls:</p>
         <p>WASD - Move</p>
-        <p>Space - Jump</p>
+        <p>Space - Jump (super jump if holding coil)</p>
         <p>Mouse - Look around</p>
+        <p>Left Click - Shoot if holding gun</p>
+    </div>
+    <div id="ui">
+        <p id="lives">Lives: 3</p>
+        <p id="item">Item: None</p>
     </div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
@@ -45,7 +60,9 @@
 
         // PointerLockControls for smooth first-person movement
         const controls = new THREE.PointerLockControls(camera, document.body);
-        document.addEventListener('click', () => controls.lock());
+        document.addEventListener('click', () => {
+            controls.lock();
+        });
 
         // Player physics
         const player = {
@@ -56,13 +73,31 @@
             jumpForce: 0.2,
             gravity: -0.005,
             isGrounded: false,
-            onPlatform: null
+            onPlatform: null,
+            lives: 3,
+            currentItem: null
         };
+
+        // UI elements
+        const livesText = document.getElementById('lives');
+        const itemText = document.getElementById('item');
+
+        function updateUI() {
+            livesText.textContent = `Lives: ${player.lives}`;
+            itemText.textContent = `Item: ${player.currentItem ? player.currentItem : 'None'}`;
+        }
 
         // Keyboard controls
         const keys = {};
         document.addEventListener('keydown', (e) => keys[e.code] = true);
         document.addEventListener('keyup', (e) => keys[e.code] = false);
+
+        // Mouse click for shooting
+        renderer.domElement.addEventListener('mousedown', (e) => {
+            if (controls.isLocked && player.currentItem === 'gun') {
+                shootGun();
+            }
+        });
 
         // Materials
         const platformMaterial = new THREE.MeshStandardMaterial({ color: 0x888888 });
@@ -70,10 +105,17 @@
         const spinningPlatformMaterial = new THREE.MeshStandardMaterial({ color: 0xffcc00 });
         const slippyPlatformMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
         const obstacleMaterial = new THREE.MeshStandardMaterial({ color: 0xff3333 });
+        const coilMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff99 });
+        const gunMaterial = new THREE.MeshStandardMaterial({ color: 0xff9900 });
+        const droneMaterial = new THREE.MeshStandardMaterial({ color: 0x3333ff });
+        const projectileMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
 
-        // Arrays to store platforms and obstacles
+        // Arrays to store objects
         const platforms = [];
         const obstacles = [];
+        const items = [];
+        const drones = [];
+        const projectiles = [];
 
         // Function to create a static platform
         function createPlatform(x, y, z, width, depth, options = {}) {
@@ -138,13 +180,60 @@
             return obstacle;
         }
 
-        // Procedural stage generation with more randomness and branches
+        // Function to create an item
+        function createItem(type, x, y, z) {
+            const geometry = new THREE.SphereGeometry(0.5, 32, 32);
+            const material = type === 'coil' ? coilMaterial : gunMaterial;
+            const item = new THREE.Mesh(geometry, material);
+            item.position.set(x, y + 1, z);
+            item.userData = { type };
+            scene.add(item);
+            items.push(item);
+            return item;
+        }
+
+        // Function to create a drone
+        function createDrone(x, y, z) {
+            const geometry = new THREE.BoxGeometry(1, 1, 1);
+            const drone = new THREE.Mesh(geometry, droneMaterial);
+            drone.position.set(x, y + 3, z);
+            drone.userData = {
+                shootTimer: Math.random() * 100 + 100, // Random initial shoot delay
+                velocity: new THREE.Vector3((Math.random() - 0.5) * 0.02, 0, (Math.random() - 0.5) * 0.02)
+            };
+            scene.add(drone);
+            drones.push(drone);
+            return drone;
+        }
+
+        // Function to create a projectile
+        function createProjectile(pos, dir) {
+            const geometry = new THREE.SphereGeometry(0.2, 8, 8);
+            const projectile = new THREE.Mesh(geometry, projectileMaterial);
+            projectile.position.copy(pos);
+            projectile.userData = { velocity: dir.clone().normalize().multiplyScalar(0.2) };
+            scene.add(projectile);
+            projectiles.push(projectile);
+            return projectile;
+        }
+
+        // Procedural stage generation
         function generateStage() {
-            // Clear existing platforms and obstacles
+            // Clear existing objects
             platforms.forEach(p => scene.remove(p));
             obstacles.forEach(o => scene.remove(o));
+            items.forEach(i => scene.remove(i));
+            drones.forEach(d => scene.remove(d));
+            projectiles.forEach(pr => scene.remove(pr));
             platforms.length = 0;
             obstacles.length = 0;
+            items.length = 0;
+            drones.length = 0;
+            projectiles.length = 0;
+
+            // Reset player item
+            player.currentItem = null;
+            updateUI();
 
             // Create starting platform
             createPlatform(0, 0, 0, 10, 10);
@@ -156,42 +245,50 @@
             const levelHeight = 3;
             const maxHorizontalSpread = 10;
 
-            const levelCenters = [{x: 0, z: 0}]; // Start at origin
+            const levelCenters = [{x: 0, z: 0}];
 
             for (let level = 1; level <= maxLevels; level++) {
                 const numPlatforms = Math.floor(Math.random() * (maxPlatformsPerLevel - minPlatformsPerLevel + 1)) + minPlatformsPerLevel;
                 const newCenters = [];
 
                 for (let i = 0; i < numPlatforms; i++) {
-                    // Choose a parent center from previous level
                     const parent = levelCenters[Math.floor(Math.random() * levelCenters.length)];
                     const angle = Math.random() * Math.PI * 2;
-                    const distance = Math.random() * maxHorizontalSpread + 2; // Min 2 to allow jumping
+                    const distance = Math.random() * maxHorizontalSpread + 2;
 
                     const x = parent.x + Math.cos(angle) * distance;
                     const z = parent.z + Math.sin(angle) * distance;
-                    const y = level * levelHeight + (Math.random() - 0.5) * 1; // Slight vertical variation
+                    const y = level * levelHeight + (Math.random() - 0.5) * 1;
 
-                    const width = Math.random() * 5 + 1; // 1 to 6 for narrow platforms
-                    const depth = Math.random() * 5 + 1; // 1 to 6 for narrow platforms
+                    const width = Math.random() * 5 + 1;
+                    const depth = Math.random() * 5 + 1;
 
-                    const isSlippy = Math.random() < 0.2; // 20% chance slippy
+                    const isSlippy = Math.random() < 0.2;
                     const options = { slippy: isSlippy };
 
                     const rand = Math.random();
+                    let platform;
                     if (rand < 0.3) {
-                        // Moving platform
                         const moveAxis = Math.random() > 0.5 ? 'x' : 'z';
-                        const moveRange = Math.random() * 3 + 1; // 1 to 4
+                        const moveRange = Math.random() * 3 + 1;
                         const speed = Math.random() * 0.02 + 0.01;
-                        createMovingPlatform(x, y, z, width, depth, moveAxis, moveRange, speed, options);
+                        platform = createMovingPlatform(x, y, z, width, depth, moveAxis, moveRange, speed, options);
                     } else if (rand < 0.5) {
-                        // Spinning platform
-                        const spinSpeed = (Math.random() * 0.02 + 0.01) * (Math.random() < 0.5 ? 1 : -1); // Random direction
-                        createSpinningPlatform(x, y, z, width, depth, spinSpeed, options);
+                        const spinSpeed = (Math.random() * 0.02 + 0.01) * (Math.random() < 0.5 ? 1 : -1);
+                        platform = createSpinningPlatform(x, y, z, width, depth, spinSpeed, options);
                     } else {
-                        // Static platform
-                        createPlatform(x, y, z, width, depth, options);
+                        platform = createPlatform(x, y, z, width, depth, options);
+                    }
+
+                    // Add item with 10% chance
+                    if (Math.random() < 0.1) {
+                        const itemType = Math.random() < 0.5 ? 'coil' : 'gun';
+                        createItem(itemType, x, y, z);
+                    }
+
+                    // Add drone with 5% chance
+                    if (Math.random() < 0.05) {
+                        createDrone(x, y, z);
                     }
 
                     // Add obstacle with 20% chance
@@ -219,6 +316,21 @@
         directionalLight.position.set(10, 20, 10);
         scene.add(directionalLight);
 
+        // Raycaster for shooting
+        const raycaster = new THREE.Raycaster();
+
+        function shootGun() {
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+            const intersects = raycaster.intersectObjects(drones);
+            if (intersects.length > 0) {
+                const hitDrone = intersects[0].object;
+                scene.remove(hitDrone);
+                drones.splice(drones.indexOf(hitDrone), 1);
+            }
+            player.currentItem = null;
+            updateUI();
+        }
+
         // Collision detection
         function checkCollision() {
             const playerBox = new THREE.Box3().setFromCenterAndSize(
@@ -239,7 +351,6 @@
                         player.onPlatform = platform;
                         collidedWithPlatform = true;
 
-                        // If platform is moving, add its velocity to player (simple approximation)
                         if (platform.userData.moveAxis) {
                             const delta = Math.cos(platform.userData.time) * platform.userData.speed * platform.userData.moveRange;
                             if (platform.userData.moveAxis === 'x') {
@@ -252,14 +363,40 @@
                 }
             }
 
+            // Check item pickup
+            for (let i = items.length - 1; i >= 0; i--) {
+                const item = items[i];
+                const itemBox = new THREE.Box3().setFromObject(item);
+                if (playerBox.intersectsBox(itemBox) && !player.currentItem) {
+                    player.currentItem = item.userData.type;
+                    scene.remove(item);
+                    items.splice(i, 1);
+                    updateUI();
+                }
+            }
+
+            // Check projectile hits on player
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                const proj = projectiles[i];
+                const projBox = new THREE.Box3().setFromObject(proj);
+                if (playerBox.intersectsBox(projBox)) {
+                    player.lives -= 1;
+                    updateUI();
+                    scene.remove(proj);
+                    projectiles.splice(i, 1);
+                    if (player.lives <= 0) {
+                        resetGame();
+                    }
+                } else if (proj.position.y < -20 || proj.position.distanceTo(player.position) > 100) {
+                    scene.remove(proj);
+                    projectiles.splice(i, 1);
+                }
+            }
+
             for (const obstacle of obstacles) {
                 const obstacleBox = new THREE.Box3().setFromObject(obstacle);
                 if (playerBox.intersectsBox(obstacleBox)) {
-                    // Respawn on collision with obstacle
-                    player.position.set(0, 2, 0);
-                    player.velocity.set(0, 0, 0);
-                    player.isGrounded = true;
-                    player.onPlatform = null;
+                    resetGame();
                     return true;
                 }
             }
@@ -269,6 +406,16 @@
             }
 
             return collidedWithPlatform;
+        }
+
+        function resetGame() {
+            player.position.set(0, 2, 0);
+            player.velocity.set(0, 0, 0);
+            player.isGrounded = true;
+            player.lives = 3;
+            player.currentItem = null;
+            generateStage();
+            updateUI();
         }
 
         // Update moving and spinning objects
@@ -302,22 +449,44 @@
             });
         }
 
+        // Update drones and projectiles
+        function updateDronesAndProjectiles() {
+            drones.forEach(drone => {
+                // Fly around randomly
+                drone.position.add(drone.userData.velocity);
+                if (Math.random() < 0.01) {
+                    drone.userData.velocity.set((Math.random() - 0.5) * 0.02, 0, (Math.random() - 0.5) * 0.02);
+                }
+
+                // Shoot at player periodically
+                drone.userData.shootTimer -= 1;
+                if (drone.userData.shootTimer <= 0) {
+                    const dir = player.position.clone().sub(drone.position);
+                    createProjectile(drone.position, dir);
+                    drone.userData.shootTimer = 200 + Math.random() * 100; // Reset timer
+                }
+            });
+
+            projectiles.forEach(proj => {
+                proj.position.add(proj.userData.velocity);
+            });
+        }
+
         // Movement and physics update
         function update() {
-            // Update moving platforms and obstacles
             updateMovingObjects();
+            updateDronesAndProjectiles();
 
             // Apply gravity
             player.velocity.y += player.gravity;
 
-            // Movement (reverted to original signs)
+            // Movement
             const direction = new THREE.Vector3();
-            if (keys['KeyW']) direction.z -= 1; // Forward
-            if (keys['KeyS']) direction.z += 1; // Backward
+            if (keys['KeyW']) direction.z -= 1;
+            if (keys['KeyS']) direction.z += 1;
             if (keys['KeyA']) direction.x -= 1;
             if (keys['KeyD']) direction.x += 1;
 
-            // Normalize and apply speed
             direction.normalize().multiplyScalar(player.speed);
             const forward = new THREE.Vector3();
             controls.getDirection(forward);
@@ -327,7 +496,13 @@
 
             // Jump
             if (keys['Space'] && player.isGrounded) {
-                player.velocity.y = player.jumpForce;
+                let force = player.jumpForce;
+                if (player.currentItem === 'coil') {
+                    force *= 2; // Super jump
+                    player.currentItem = null;
+                    updateUI();
+                }
+                player.velocity.y = force;
                 player.isGrounded = false;
                 player.onPlatform = null;
             }
@@ -336,27 +511,23 @@
             player.position.add(player.velocity);
 
             // Check collisions
-            player.isGrounded = false; // Reset before checking
+            player.isGrounded = false;
             const collided = checkCollision();
             if (!collided && player.velocity.y < 0) {
                 player.isGrounded = false;
             }
 
-            // Apply damping based on platform type
+            // Damping
             let damping = 0.9;
             if (player.isGrounded && player.onPlatform && player.onPlatform.userData.slippy) {
-                damping = 0.99; // Less damping for slippery
+                damping = 0.99;
             }
             player.velocity.x *= damping;
             player.velocity.z *= damping;
 
-            // Prevent falling below ground or regenerate stage if too high
+            // Regenerate if too high or low
             if (player.position.y < -10 || player.position.y > 50) {
-                player.position.set(0, 2, 0);
-                player.velocity.set(0, 0, 0);
-                player.isGrounded = true;
-                player.onPlatform = null;
-                generateStage();
+                resetGame();
             }
         }
 
