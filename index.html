@@ -32,10 +32,10 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 20px;
-            height: 20px;
-            color: white;
-            font-size: 20px;
+            width: 30px;
+            height: 30px;
+            color: black;
+            font-size: 30px;
             text-align: center;
             pointer-events: none;
         }
@@ -103,7 +103,7 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        // PointerLockControls for smooth first-person movement
+        // PointerLockControls
         const controls = new THREE.PointerLockControls(camera, document.body);
         document.addEventListener('click', () => {
             if (!gameOver) controls.lock();
@@ -127,7 +127,7 @@
         // Game state
         let gameOver = false;
 
-        // Gun model
+        // Gun model (for holding)
         const gunGeometry = new THREE.BoxGeometry(0.3, 0.2, 0.8);
         const gunMaterial = new THREE.MeshStandardMaterial({ color: 0xff9900 });
         const gun = new THREE.Mesh(gunGeometry, gunMaterial);
@@ -169,9 +169,10 @@
         const spinningPlatformMaterial = new THREE.MeshStandardMaterial({ color: 0xffcc00 });
         const slippyPlatformMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
         const obstacleMaterial = new THREE.MeshStandardMaterial({ color: 0xff3333 });
-        const coilMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff99 });
+        const coilMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff99, emissive: 0x00ff99, emissiveIntensity: 0.5 });
         const droneMaterial = new THREE.MeshStandardMaterial({ color: 0x3333ff });
         const projectileMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+        const gunItemMaterial = new THREE.MeshStandardMaterial({ color: 0xff9900, emissive: 0xff9900, emissiveIntensity: 0.5 });
 
         // Arrays to store objects
         const platforms = [];
@@ -245,9 +246,21 @@
 
         // Function to create an item
         function createItem(type, x, y, z) {
-            const geometry = new THREE.SphereGeometry(0.5, 32, 32);
-            const material = type === 'coil' ? coilMaterial : gunMaterial;
-            const item = new THREE.Mesh(geometry, material);
+            let item;
+            if (type === 'coil') {
+                const geometry = new THREE.TorusGeometry(0.4, 0.1, 16, 32);
+                item = new THREE.Mesh(geometry, coilMaterial);
+            } else {
+                // Gun as a group of barrel and handle
+                item = new THREE.Group();
+                const barrelGeometry = new THREE.BoxGeometry(0.2, 0.2, 0.8);
+                const handleGeometry = new THREE.BoxGeometry(0.2, 0.4, 0.2);
+                const barrelMesh = new THREE.Mesh(barrelGeometry, gunItemMaterial);
+                const handleMesh = new THREE.Mesh(handleGeometry, gunItemMaterial);
+                handleMesh.position.set(0, -0.3, 0.3);
+                item.add(barrelMesh);
+                item.add(handleMesh);
+            }
             item.position.set(x, y + 1, z);
             item.userData = { type };
             scene.add(item);
@@ -274,7 +287,7 @@
             const geometry = new THREE.SphereGeometry(0.2, 8, 8);
             const projectile = new THREE.Mesh(geometry, projectileMaterial);
             projectile.position.copy(pos);
-            projectile.userData = { velocity: dir.clone().normalize().multiplyScalar(0.1) }; // Slower speed
+            projectile.userData = { velocity: dir.clone().normalize().multiplyScalar(0.1) };
             scene.add(projectile);
             projectiles.push(projectile);
             return projectile;
@@ -460,9 +473,21 @@
                     if (player.lives <= 0) {
                         showGameOver();
                     }
-                } else if (proj.position.y < -20 || proj.position.distanceTo(player.position) > 100) {
-                    scene.remove(proj);
-                    projectiles.splice(i, 1);
+                } else {
+                    let hitPlatform = false;
+                    for (const platform of platforms) {
+                        const platformBox = new THREE.Box3().setFromObject(platform);
+                        if (projBox.intersectsBox(platformBox)) {
+                            scene.remove(proj);
+                            projectiles.splice(i, 1);
+                            hitPlatform = true;
+                            break;
+                        }
+                    }
+                    if (!hitPlatform && (proj.position.y < -20 || proj.position.distanceTo(player.position) > 100)) {
+                        scene.remove(proj);
+                        projectiles.splice(i, 1);
+                    }
                 }
             }
 
