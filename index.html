@@ -27,6 +27,18 @@
             padding: 10px;
             border-radius: 5px;
         }
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 20px;
+            height: 20px;
+            color: white;
+            font-size: 20px;
+            text-align: center;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
@@ -41,6 +53,7 @@
         <p id="lives">Lives: 3</p>
         <p id="item">Item: None</p>
     </div>
+    <div id="crosshair">+</div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
     <script>
@@ -78,6 +91,16 @@
             currentItem: null
         };
 
+        // Gun model
+        const gunGeometry = new THREE.BoxGeometry(0.3, 0.2, 0.8);
+        const gunMaterial = new THREE.MeshStandardMaterial({ color: 0xff9900 });
+        const gun = new THREE.Mesh(gunGeometry, gunMaterial);
+        gun.position.set(0.5, -0.5, -0.7); // Position in front of camera
+        gun.rotation.y = Math.PI / -8; // Slight angle for realism
+        gun.visible = false; // Hidden by default
+        camera.add(gun); // Attach to camera for FPS effect
+        scene.add(camera);
+
         // UI elements
         const livesText = document.getElementById('lives');
         const itemText = document.getElementById('item');
@@ -85,6 +108,7 @@
         function updateUI() {
             livesText.textContent = `Lives: ${player.lives}`;
             itemText.textContent = `Item: ${player.currentItem ? player.currentItem : 'None'}`;
+            gun.visible = player.currentItem === 'gun';
         }
 
         // Keyboard controls
@@ -106,7 +130,6 @@
         const slippyPlatformMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
         const obstacleMaterial = new THREE.MeshStandardMaterial({ color: 0xff3333 });
         const coilMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff99 });
-        const gunMaterial = new THREE.MeshStandardMaterial({ color: 0xff9900 });
         const droneMaterial = new THREE.MeshStandardMaterial({ color: 0x3333ff });
         const projectileMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
 
@@ -198,7 +221,7 @@
             const drone = new THREE.Mesh(geometry, droneMaterial);
             drone.position.set(x, y + 3, z);
             drone.userData = {
-                shootTimer: Math.random() * 100 + 100, // Random initial shoot delay
+                shootTimer: Math.random() * 100 + 100,
                 velocity: new THREE.Vector3((Math.random() - 0.5) * 0.02, 0, (Math.random() - 0.5) * 0.02)
             };
             scene.add(drone);
@@ -219,7 +242,6 @@
 
         // Procedural stage generation
         function generateStage() {
-            // Clear existing objects
             platforms.forEach(p => scene.remove(p));
             obstacles.forEach(o => scene.remove(o));
             items.forEach(i => scene.remove(i));
@@ -231,11 +253,9 @@
             drones.length = 0;
             projectiles.length = 0;
 
-            // Reset player item
             player.currentItem = null;
             updateUI();
 
-            // Create starting platform
             createPlatform(0, 0, 0, 10, 10);
 
             let currentLevel = 0;
@@ -280,18 +300,15 @@
                         platform = createPlatform(x, y, z, width, depth, options);
                     }
 
-                    // Add item with 10% chance
                     if (Math.random() < 0.1) {
                         const itemType = Math.random() < 0.5 ? 'coil' : 'gun';
                         createItem(itemType, x, y, z);
                     }
 
-                    // Add drone with 5% chance
                     if (Math.random() < 0.05) {
                         createDrone(x, y, z);
                     }
 
-                    // Add obstacle with 20% chance
                     if (Math.random() < 0.2) {
                         const obsAxis = Math.random() > 0.5 ? 'x' : 'z';
                         const obsRange = Math.random() * 2 + 2;
@@ -363,7 +380,6 @@
                 }
             }
 
-            // Check item pickup
             for (let i = items.length - 1; i >= 0; i--) {
                 const item = items[i];
                 const itemBox = new THREE.Box3().setFromObject(item);
@@ -375,7 +391,6 @@
                 }
             }
 
-            // Check projectile hits on player
             for (let i = projectiles.length - 1; i >= 0; i--) {
                 const proj = projectiles[i];
                 const projBox = new THREE.Box3().setFromObject(proj);
@@ -452,18 +467,16 @@
         // Update drones and projectiles
         function updateDronesAndProjectiles() {
             drones.forEach(drone => {
-                // Fly around randomly
                 drone.position.add(drone.userData.velocity);
                 if (Math.random() < 0.01) {
                     drone.userData.velocity.set((Math.random() - 0.5) * 0.02, 0, (Math.random() - 0.5) * 0.02);
                 }
 
-                // Shoot at player periodically
                 drone.userData.shootTimer -= 1;
                 if (drone.userData.shootTimer <= 0) {
                     const dir = player.position.clone().sub(drone.position);
                     createProjectile(drone.position, dir);
-                    drone.userData.shootTimer = 200 + Math.random() * 100; // Reset timer
+                    drone.userData.shootTimer = 200 + Math.random() * 100;
                 }
             });
 
@@ -477,13 +490,11 @@
             updateMovingObjects();
             updateDronesAndProjectiles();
 
-            // Apply gravity
             player.velocity.y += player.gravity;
 
-            // Movement
             const direction = new THREE.Vector3();
-            if (keys['KeyS']) direction.z -= 1;
-            if (keys['KeyW']) direction.z += 1;
+            if (keys['KeyW']) direction.z -= 1;
+            if (keys['KeyS']) direction.z += 1;
             if (keys['KeyA']) direction.x -= 1;
             if (keys['KeyD']) direction.x += 1;
 
@@ -494,11 +505,10 @@
             player.velocity.x = direction.x * right.x + direction.z * forward.x;
             player.velocity.z = direction.x * right.z + direction.z * forward.z;
 
-            // Jump
             if (keys['Space'] && player.isGrounded) {
                 let force = player.jumpForce;
                 if (player.currentItem === 'coil') {
-                    force *= 2; // Super jump
+                    force *= 2;
                     player.currentItem = null;
                     updateUI();
                 }
@@ -507,17 +517,14 @@
                 player.onPlatform = null;
             }
 
-            // Update position
             player.position.add(player.velocity);
 
-            // Check collisions
             player.isGrounded = false;
             const collided = checkCollision();
             if (!collided && player.velocity.y < 0) {
                 player.isGrounded = false;
             }
 
-            // Damping
             let damping = 0.9;
             if (player.isGrounded && player.onPlatform && player.onPlatform.userData.slippy) {
                 damping = 0.99;
@@ -525,7 +532,6 @@
             player.velocity.x *= damping;
             player.velocity.z *= damping;
 
-            // Regenerate if too high or low
             if (player.position.y < -10 || player.position.y > 50) {
                 resetGame();
             }
