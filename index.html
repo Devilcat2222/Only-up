@@ -218,8 +218,8 @@
         const obstacleMaterial = new THREE.MeshStandardMaterial({ color: 0xff3333 });
         const coilMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff99, emissive: 0x00ff99, emissiveIntensity: 0.5 });
         const droneMaterial = new THREE.MeshStandardMaterial({ color: 0x3333ff });
-        const projectileMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
-        const gunItemMaterial = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0x000000, emissiveIntensity: 0.5 });
+        const droneProjectileMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+        const gunProjectileMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
 
         // Arrays to store objects
         const platforms = [];
@@ -301,8 +301,8 @@
                 item = new THREE.Group();
                 const barrelGeometry = new THREE.BoxGeometry(0.2, 0.2, 0.8);
                 const handleGeometry = new THREE.BoxGeometry(0.2, 0.4, 0.2);
-                const barrelMesh = new THREE.Mesh(barrelGeometry, gunItemMaterial);
-                const handleMesh = new THREE.Mesh(handleGeometry, gunItemMaterial);
+                const barrelMesh = new THREE.Mesh(barrelGeometry, gunProjectileMaterial);
+                const handleMesh = new THREE.Mesh(handleGeometry, gunProjectileMaterial);
                 handleMesh.position.set(0, -0.3, 0.3);
                 item.add(barrelMesh);
                 item.add(handleMesh);
@@ -329,14 +329,30 @@
         }
 
         // Function to create a projectile
-        function createProjectile(pos, dir) {
-            const geometry = new THREE.SphereGeometry(0.2, 8, 8);
-            const projectile = new THREE.Mesh(geometry, projectileMaterial);
+        function createProjectile(pos, dir, isGunProjectile = false) {
+            const radius = isGunProjectile ? 0.1 : 0.2;
+            const geometry = new THREE.SphereGeometry(radius, 8, 8);
+            const material = isGunProjectile ? gunProjectileMaterial : droneProjectileMaterial;
+            const projectile = new THREE.Mesh(geometry, material);
             projectile.position.copy(pos);
-            projectile.userData = { velocity: dir.clone().normalize().multiplyScalar(0.1) };
+            const speed = isGunProjectile ? 0.3 : 0.1;
+            projectile.userData = { 
+                velocity: dir.clone().normalize().multiplyScalar(speed),
+                isGunProjectile 
+            };
             scene.add(projectile);
             projectiles.push(projectile);
             return projectile;
+        }
+
+        // Function to shoot gun projectile
+        function shootGun() {
+            const direction = new THREE.Vector3();
+            controls.getDirection(direction);
+            const pos = player.position.clone().add(new THREE.Vector3(0, player.height / 2, 0));
+            createProjectile(pos, direction, true);
+            player.currentItem = null;
+            updateUI();
         }
 
         // Procedural stage generation
@@ -344,7 +360,7 @@
             platforms.forEach(p => scene.remove(p));
             obstacles.forEach(o => scene.remove(o));
             items.forEach(i => scene.remove(i));
-            drones.forEach(d => scene.remove(d));
+            drones.forEach(d => scene.remove(i));
             projectiles.forEach(pr => scene.remove(pr));
             platforms.length = 0;
             obstacles.length = 0;
@@ -446,21 +462,6 @@
         directionalLight.shadow.camera.bottom = -20;
         scene.add(directionalLight);
 
-        // Raycaster for shooting
-        const raycaster = new THREE.Raycaster();
-
-        function shootGun() {
-            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-            const intersects = raycaster.intersectObjects(drones);
-            if (intersects.length > 0) {
-                const hitDrone = intersects[0].object;
-                scene.remove(hitDrone);
-                drones.splice(drones.indexOf(hitDrone), 1);
-            }
-            player.currentItem = null;
-            updateUI();
-        }
-
         // Respawn function
         function respawn() {
             gameOver = false;
@@ -522,29 +523,52 @@
             for (let i = projectiles.length - 1; i >= 0; i--) {
                 const proj = projectiles[i];
                 const projBox = new THREE.Box3().setFromObject(proj);
-                if (playerBox.intersectsBox(projBox)) {
-                    player.lives -= 1;
-                    updateUI();
-                    scene.remove(proj);
-                    projectiles.splice(i, 1);
-                    if (player.lives <= 0) {
-                        showGameOver();
-                    }
-                } else {
-                    let hitPlatform = false;
-                    for (const platform of platforms) {
-                        const platformBox = new THREE.Box3().setFromObject(platform);
-                        if (projBox.intersectsBox(platformBox)) {
+
+                // Check drone collision for gun projectiles
+                if (proj.userData.isGunProjectile) {
+                    let hitDrone = false;
+                    for (let j = drones.length - 1; j >= 0; j--) {
+                        const drone = drones[j];
+                        const droneBox = new THREE.Box3().setFromObject(drone);
+                        if (projBox.intersectsBox(droneBox)) {
+                            scene.remove(drone);
+                            drones.splice(j, 1);
                             scene.remove(proj);
                             projectiles.splice(i, 1);
-                            hitPlatform = true;
+                            hitDrone = true;
                             break;
                         }
                     }
-                    if (!hitPlatform && (proj.position.y < -20 || proj.position.distanceTo(player.position) > 100)) {
+                    if (hitDrone) continue;
+                } else {
+                    // Check player collision for drone projectiles
+                    if (playerBox.intersectsBox(projBox)) {
+                        player.lives -= 1;
+                        updateUI();
                         scene.remove(proj);
                         projectiles.splice(i, 1);
+                        if (player.lives <= 0) {
+                            showGameOver();
+                        }
+                        continue;
                     }
+                }
+
+                // Check platform collision for all projectiles
+                let hitPlatform = false;
+                for (const platform of platforms) {
+                    const platformBox = new THREE.Box3().setFromObject(platform);
+                    if (projBox.intersectsBox(platformBox)) {
+                        scene.remove(proj);
+                        projectiles.splice(i, 1);
+                        hitPlatform = true;
+                        break;
+                    }
+                }
+
+                if (!hitPlatform && (proj.position.y < -20 || proj.position.distanceTo(player.position) > 100)) {
+                    scene.remove(proj);
+                    projectiles.splice(i, 1);
                 }
             }
 
@@ -623,7 +647,7 @@
                 drone.userData.shootTimer -= 1;
                 if (drone.userData.shootTimer <= 0) {
                     const dir = player.position.clone().sub(drone.position);
-                    createProjectile(drone.position, dir);
+                    createProjectile(drone.position, dir, false);
                     drone.userData.shootTimer = 200 + Math.random() * 100;
                 }
             });
