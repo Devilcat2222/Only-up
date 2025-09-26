@@ -67,6 +67,7 @@
         // Materials
         const platformMaterial = new THREE.MeshStandardMaterial({ color: 0x888888 });
         const movingPlatformMaterial = new THREE.MeshStandardMaterial({ color: 0x66ccff });
+        const spinningPlatformMaterial = new THREE.MeshStandardMaterial({ color: 0xffcc00 });
         const slippyPlatformMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
         const obstacleMaterial = new THREE.MeshStandardMaterial({ color: 0xff3333 });
 
@@ -100,6 +101,21 @@
                 time: Math.random() * Math.PI * 2 
             };
             if (options.slippy) platform.userData.slippy = true;
+            scene.add(platform);
+            platforms.push(platform);
+            return platform;
+        }
+
+        // Function to create a spinning platform
+        function createSpinningPlatform(x, y, z, width, depth, spinSpeed, options = {}) {
+            const material = options.slippy ? slippyPlatformMaterial : spinningPlatformMaterial;
+            const geometry = new THREE.BoxGeometry(width, 0.5, depth);
+            const platform = new THREE.Mesh(geometry, material);
+            platform.position.set(x, y, z);
+            platform.userData = { 
+                spinSpeed,
+                slippy: options.slippy || false
+            };
             scene.add(platform);
             platforms.push(platform);
             return platform;
@@ -162,13 +178,19 @@
                     const isSlippy = Math.random() < 0.2; // 20% chance slippy
                     const options = { slippy: isSlippy };
 
-                    // 40% chance for moving platform
-                    if (Math.random() < 0.4) {
+                    const rand = Math.random();
+                    if (rand < 0.3) {
+                        // Moving platform
                         const moveAxis = Math.random() > 0.5 ? 'x' : 'z';
                         const moveRange = Math.random() * 3 + 1; // 1 to 4
                         const speed = Math.random() * 0.02 + 0.01;
                         createMovingPlatform(x, y, z, width, depth, moveAxis, moveRange, speed, options);
+                    } else if (rand < 0.5) {
+                        // Spinning platform
+                        const spinSpeed = (Math.random() * 0.02 + 0.01) * (Math.random() < 0.5 ? 1 : -1); // Random direction
+                        createSpinningPlatform(x, y, z, width, depth, spinSpeed, options);
                     } else {
+                        // Static platform
                         createPlatform(x, y, z, width, depth, options);
                     }
 
@@ -249,9 +271,24 @@
             return collidedWithPlatform;
         }
 
-        // Update moving objects
+        // Update moving and spinning objects
         function updateMovingObjects() {
-            [...platforms, ...obstacles].forEach(obj => {
+            platforms.forEach(obj => {
+                if (obj.userData.moveAxis) {
+                    obj.userData.time += obj.userData.speed;
+                    const offset = Math.sin(obj.userData.time) * obj.userData.moveRange;
+                    obj.position.copy(obj.userData.initialPos);
+                    if (obj.userData.moveAxis === 'x') {
+                        obj.position.x += offset;
+                    } else if (obj.userData.moveAxis === 'z') {
+                        obj.position.z += offset;
+                    }
+                } else if (obj.userData.spinSpeed) {
+                    obj.rotation.y += obj.userData.spinSpeed;
+                }
+            });
+
+            obstacles.forEach(obj => {
                 if (obj.userData.moveAxis) {
                     obj.userData.time += obj.userData.speed;
                     const offset = Math.sin(obj.userData.time) * obj.userData.moveRange;
@@ -273,10 +310,10 @@
             // Apply gravity
             player.velocity.y += player.gravity;
 
-            // Movement (inverted W and S)
+            // Movement (reverted to original signs)
             const direction = new THREE.Vector3();
-            if (keys['KeyW']) direction.z += 1; // Inverted
-            if (keys['KeyS']) direction.z -= 1; // Inverted
+            if (keys['KeyW']) direction.z -= 1; // Forward
+            if (keys['KeyS']) direction.z += 1; // Backward
             if (keys['KeyA']) direction.x -= 1;
             if (keys['KeyD']) direction.x += 1;
 
