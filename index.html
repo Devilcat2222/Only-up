@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Only Up Game</title>
+    <title>3D Only Up Game with Auto-Generated Stages</title>
     <style>
         body { margin: 0; overflow: hidden; }
         canvas { display: block; }
@@ -63,23 +63,80 @@
         document.addEventListener('keydown', (e) => keys[e.code] = true);
         document.addEventListener('keyup', (e) => keys[e.code] = false);
 
-        // Platforms
-        const platforms = [];
+        // Materials
         const platformMaterial = new THREE.MeshStandardMaterial({ color: 0x888888 });
+        const obstacleMaterial = new THREE.MeshStandardMaterial({ color: 0xff3333 });
+
+        // Arrays to store platforms and obstacles
+        const platforms = [];
+        const obstacles = [];
+
+        // Function to create a platform
         function createPlatform(x, y, z, width, depth) {
             const geometry = new THREE.BoxGeometry(width, 0.5, depth);
             const platform = new THREE.Mesh(geometry, platformMaterial);
             platform.position.set(x, y, z);
             scene.add(platform);
             platforms.push(platform);
+            return platform;
         }
 
-        // Create multiple platforms
-        createPlatform(0, 0, 0, 10, 10); // Starting platform
-        createPlatform(5, 2, -5, 5, 5);
-        createPlatform(10, 4, -10, 5, 5);
-        createPlatform(15, 6, -15, 5, 5);
-        createPlatform(20, 8, -20, 5, 5);
+        // Function to create an obstacle (moving block)
+        function createObstacle(x, y, z, width, height, depth, moveAxis, moveRange, speed) {
+            const geometry = new THREE.BoxGeometry(width, height, depth);
+            const obstacle = new THREE.Mesh(geometry, obstacleMaterial);
+            obstacle.position.set(x, y, z);
+            obstacle.userData = { moveAxis, moveRange, speed, initialPos: new THREE.Vector3(x, y, z), time: 0 };
+            scene.add(obstacle);
+            obstacles.push(obstacle);
+            return obstacle;
+        }
+
+        // Procedural stage generation
+        function generateStage() {
+            // Clear existing platforms and obstacles (except starting platform)
+            platforms.forEach(platform => scene.remove(platform));
+            obstacles.forEach(obstacle => scene.remove(obstacle));
+            platforms.length = 0;
+            obstacles.length = 0;
+
+            // Create starting platform
+            createPlatform(0, 0, 0, 10, 10);
+
+            let lastX = 0, lastZ = 0, lastY = 0;
+            const maxPlatforms = 20;
+            const minGap = 3;
+            const maxGap = 6;
+            const maxHeightStep = 2.5;
+
+            for (let i = 0; i < maxPlatforms; i++) {
+                // Randomize platform size and position
+                const width = Math.random() * 3 + 3; // 3 to 6
+                const depth = Math.random() * 3 + 3;
+                const heightStep = Math.random() * maxHeightStep + 1;
+                const gap = Math.random() * (maxGap - minGap) + minGap;
+                const angle = Math.random() * Math.PI * 2;
+                const x = lastX + Math.cos(angle) * gap;
+                const z = lastZ + Math.sin(angle) * gap;
+                const y = lastY + heightStep;
+
+                createPlatform(x, y, z, width, depth);
+
+                // Add obstacles with 30% chance
+                if (Math.random() < 0.3 && i > 0) {
+                    const moveAxis = Math.random() > 0.5 ? 'x' : 'z';
+                    const moveRange = Math.random() * 2 + 2; // 2 to 4
+                    createObstacle(x, y + 1, z, 1, 1, 1, moveAxis, moveRange, 0.02);
+                }
+
+                lastX = x;
+                lastZ = z;
+                lastY = y;
+            }
+        }
+
+        // Initial stage generation
+        generateStage();
 
         // Lighting
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
@@ -107,7 +164,32 @@
                     }
                 }
             }
+
+            for (const obstacle of obstacles) {
+                const obstacleBox = new THREE.Box3().setFromObject(obstacle);
+                if (playerBox.intersectsBox(obstacleBox)) {
+                    // Respawn on collision with obstacle
+                    player.position.set(0, 2, 0);
+                    player.velocity.set(0, 0, 0);
+                    player.isGrounded = true;
+                    return true;
+                }
+            }
             return false;
+        }
+
+        // Update obstacles
+        function updateObstacles() {
+            obstacles.forEach(obstacle => {
+                obstacle.userData.time += obstacle.userData.speed;
+                const offset = Math.sin(obstacle.userData.time) * obstacle.userData.moveRange;
+                obstacle.position.copy(obstacle.userData.initialPos);
+                if (obstacle.userData.moveAxis === 'x') {
+                    obstacle.position.x += offset;
+                } else {
+                    obstacle.position.z += offset;
+                }
+            });
         }
 
         // Movement and physics update
@@ -117,8 +199,8 @@
 
             // Movement
             const direction = new THREE.Vector3();
-            if (keys['KeyS']) direction.z -= 1;
-            if (keys['KeyW']) direction.z += 1;
+            if (keys['KeyW']) direction.z -= 1;
+            if (keys['KeyS']) direction.z += 1;
             if (keys['KeyA']) direction.x -= 1;
             if (keys['KeyD']) direction.x += 1;
 
@@ -144,16 +226,16 @@
                 player.isGrounded = false;
             }
 
-            // Prevent falling below ground
-            if (player.position.y < -10) {
+            // Prevent falling below ground or regenerate stage if too high
+            if (player.position.y < -10 || player.position.y > 50) {
                 player.position.set(0, 2, 0);
                 player.velocity.set(0, 0, 0);
                 player.isGrounded = true;
+                generateStage();
             }
 
-            // Smooth damping
-            player.velocity.x *= 0.9;
-            player.velocity.z *= 0.9;
+            // Update obstacles
+            updateObstacles();
         }
 
         // Animation loop
