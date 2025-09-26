@@ -105,7 +105,7 @@
         // Scene setup
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x87ceeb);
-        scene.fog = new THREE.Fog(0x87ceeb, 10, 200); // Increased fog far distance
+        scene.fog = new THREE.Fog(0x87ceeb, 10, 200);
 
         // Camera
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -169,9 +169,26 @@
             gun.visible = player.currentItem === 'gun';
         }
 
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+        directionalLight.position.set(10, 20, 10);
+        directionalLight.castShadow = false;
+        directionalLight.shadow.mapSize.width = 512;
+        directionalLight.shadow.mapSize.height = 512;
+        directionalLight.shadow.camera.near = 0.1;
+        directionalLight.shadow.camera.far = 50;
+        directionalLight.shadow.camera.left = -20;
+        directionalLight.shadow.camera.right = 20;
+        directionalLight.shadow.camera.top = 20;
+        directionalLight.shadow.camera.bottom = -20;
+        scene.add(directionalLight);
+
         // Shadow toggle
         function updateShadows(enabled) {
             renderer.shadowMap.enabled = enabled;
+            directionalLight.castShadow = enabled;
             platforms.forEach(p => {
                 p.castShadow = enabled;
                 p.receiveShadow = enabled;
@@ -194,6 +211,8 @@
             projectiles.forEach(p => {
                 p.castShadow = enabled;
             });
+            renderer.render(scene, camera); // Force render to update shadow map
+            console.log(`Shadows ${enabled ? 'enabled' : 'disabled'}`);
         }
 
         shadowCheckbox.addEventListener('change', () => {
@@ -207,7 +226,7 @@
 
         // Mouse click for shooting
         renderer.domElement.addEventListener('mousedown', (e) => {
-            if (controls.isLocked && player.currentItem === 'gun' && !gameOver) {
+            if (e.button === 0 && controls.isLocked && player.currentItem === 'gun' && !gameOver) {
                 shootGun();
             }
         });
@@ -237,6 +256,8 @@
             const platform = new THREE.Mesh(geometry, material);
             platform.position.set(x, y, z);
             if (options.slippy) platform.userData.slippy = true;
+            platform.castShadow = shadowCheckbox.checked;
+            platform.receiveShadow = shadowCheckbox.checked;
             scene.add(platform);
             platforms.push(platform);
             console.log(`Platform created at (${x}, ${y}, ${z}) with size (${width}, 0.5, ${depth})`);
@@ -257,6 +278,8 @@
                 time: Math.random() * Math.PI * 2 
             };
             if (options.slippy) platform.userData.slippy = true;
+            platform.castShadow = shadowCheckbox.checked;
+            platform.receiveShadow = shadowCheckbox.checked;
             scene.add(platform);
             platforms.push(platform);
             console.log(`Moving platform created at (${x}, ${y}, ${z})`);
@@ -273,6 +296,8 @@
                 spinSpeed,
                 slippy: options.slippy || false
             };
+            platform.castShadow = shadowCheckbox.checked;
+            platform.receiveShadow = shadowCheckbox.checked;
             scene.add(platform);
             platforms.push(platform);
             console.log(`Spinning platform created at (${x}, ${y}, ${z})`);
@@ -291,6 +316,8 @@
                 initialPos: new THREE.Vector3(x, y, z), 
                 time: Math.random() * Math.PI * 2 
             };
+            obstacle.castShadow = shadowCheckbox.checked;
+            obstacle.receiveShadow = shadowCheckbox.checked;
             scene.add(obstacle);
             obstacles.push(obstacle);
             console.log(`Obstacle created at (${x}, ${y}, ${z})`);
@@ -303,12 +330,15 @@
             if (type === 'coil') {
                 const geometry = new THREE.TorusGeometry(0.4, 0.1, 16, 32);
                 item = new THREE.Mesh(geometry, coilMaterial);
+                item.castShadow = shadowCheckbox.checked;
             } else {
                 item = new THREE.Group();
                 const barrelGeometry = new THREE.BoxGeometry(0.2, 0.2, 0.8);
                 const handleGeometry = new THREE.BoxGeometry(0.2, 0.4, 0.2);
                 const barrelMesh = new THREE.Mesh(barrelGeometry, gunProjectileMaterial);
                 const handleMesh = new THREE.Mesh(handleGeometry, gunProjectileMaterial);
+                barrelMesh.castShadow = shadowCheckbox.checked;
+                handleMesh.castShadow = shadowCheckbox.checked;
                 handleMesh.position.set(0, -0.3, 0.3);
                 item.add(barrelMesh);
                 item.add(handleMesh);
@@ -330,6 +360,8 @@
                 shootTimer: Math.random() * 100 + 100,
                 velocity: new THREE.Vector3((Math.random() - 0.5) * 0.02, 0, (Math.random() - 0.5) * 0.02)
             };
+            drone.castShadow = shadowCheckbox.checked;
+            drone.receiveShadow = shadowCheckbox.checked;
             scene.add(drone);
             drones.push(drone);
             console.log(`Drone created at (${x}, ${y + 3}, ${z})`);
@@ -344,10 +376,19 @@
             const projectile = new THREE.Mesh(geometry, material);
             projectile.position.copy(pos);
             const speed = isGunProjectile ? 0.3 : 0.1;
+            const direction = dir.clone().normalize();
+            // Add slight random spread for gun projectiles
+            if (isGunProjectile) {
+                direction.x += (Math.random() - 0.5) * 0.05;
+                direction.y += (Math.random() - 0.5) * 0.05;
+                direction.z += (Math.random() - 0.5) * 0.05;
+                direction.normalize();
+            }
             projectile.userData = { 
-                velocity: dir.clone().normalize().multiplyScalar(speed),
+                velocity: direction.multiplyScalar(speed),
                 isGunProjectile 
             };
+            projectile.castShadow = shadowCheckbox.checked;
             scene.add(projectile);
             projectiles.push(projectile);
             console.log(`Projectile (${isGunProjectile ? 'gun' : 'drone'}) created at (${pos.x}, ${pos.y}, ${pos.z})`);
@@ -358,10 +399,13 @@
         function shootGun() {
             const direction = new THREE.Vector3();
             controls.getDirection(direction);
-            const pos = player.position.clone().add(new THREE.Vector3(0, player.height / 2, 0));
+            const pos = player.position.clone()
+                .add(new THREE.Vector3(0, player.height / 2, 0))
+                .add(direction.clone().multiplyScalar(1)); // Offset forward
             createProjectile(pos, direction, true);
             player.currentItem = null;
             updateUI();
+            console.log('Gun fired');
         }
 
         // Procedural stage generation
@@ -457,22 +501,6 @@
         // Initial stage generation
         generateStage();
 
-        // Lighting
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-        scene.add(ambientLight);
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
-        directionalLight.position.set(10, 20, 10);
-        directionalLight.castShadow = false;
-        directionalLight.shadow.mapSize.width = 512;
-        directionalLight.shadow.mapSize.height = 512;
-        directionalLight.shadow.camera.near = 0.1;
-        directionalLight.shadow.camera.far = 50;
-        directionalLight.shadow.camera.left = -20;
-        directionalLight.shadow.camera.right = 20;
-        directionalLight.shadow.camera.top = 20;
-        directionalLight.shadow.camera.bottom = -20;
-        scene.add(directionalLight);
-
         // Respawn function
         function respawn() {
             console.log('Respawning player...');
@@ -484,14 +512,14 @@
             player.lives = 3;
             player.currentItem = null;
             player.maxHeight = 0;
-            camera.rotation.set(0, 0, 0); // Reset camera rotation
-            controls.getObject().rotation.set(0, 0, 0); // Reset controls rotation
-            Object.keys(keys).forEach(key => keys[key] = false); // Reset inputs
+            camera.rotation.set(0, 0, 0);
+            controls.getObject().rotation.set(0, 0, 0);
+            Object.keys(keys).forEach(key => keys[key] = false);
             generateStage();
             updateUI();
             setTimeout(() => {
                 if (!gameOver) controls.lock();
-            }, 100); // Delay to ensure controls lock properly
+            }, 100);
             console.log(`Player respawned at (${player.position.x}, ${player.position.y}, ${player.position.z})`);
         }
 
@@ -549,6 +577,7 @@
                         const drone = drones[j];
                         const droneBox = new THREE.Box3().setFromObject(drone);
                         if (projBox.intersectsBox(droneBox)) {
+                            console.log('Gun projectile hit drone');
                             scene.remove(drone);
                             drones.splice(j, 1);
                             scene.remove(proj);
@@ -685,8 +714,8 @@
             player.velocity.y += player.gravity;
 
             const direction = new THREE.Vector3();
-            if (keys['KeyS']) direction.z -= 1;
-            if (keys['KeyW']) direction.z += 1;
+            if (keys['KeyW']) direction.z -= 1;
+            if (keys['KeyS']) direction.z += 1;
             if (keys['KeyA']) direction.x -= 1;
             if (keys['KeyD']) direction.x += 1;
 
